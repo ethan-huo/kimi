@@ -83,7 +83,9 @@ cp -R "$NM/node_modules/$CLIP_PKG" "$STAGE/node_modules/$CLIP_PKG"
 
 cp "$HERE/launcher/kimi" "$STAGE/kimi"
 chmod +x "$STAGE/kimi"
-printf '%s\n' "$VERSION" > "$STAGE/VERSION"
+# 包内 VERSION 是"我们的发布版本"(升级追踪用)，与上游解耦：CI 传 RELEASE_VERSION=
+# <upstream>.<commit数>；本地构建不传则回退到上游版本。kimi --version 仍报上游版本。
+printf '%s\n' "${RELEASE_VERSION:-$VERSION}" > "$STAGE/VERSION"
 
 # kimi 的 getVersion() 在没有 __KIMI_CODE_VERSION__ define 时(npm build 即如此)，
 # 会从 dist/main.mjs 往上找 package.json 读 version。放一个最小 package.json 满足它，

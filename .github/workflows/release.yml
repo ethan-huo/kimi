@@ -1,6 +1,12 @@
 name: Build & Release
 
 on:
+  push:
+    branches: [main]
+    paths: # 改了补丁/构建/launcher 就自动出新 build
+      - "scripts/**"
+      - "launcher/**"
+      - ".github/workflows/release.yml"
   schedule:
     - cron: "0 */6 * * *" # 每 6 小时 poll 一次上游 npm 版本
   workflow_dispatch:
@@ -18,18 +24,26 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 需要完整历史来数 commit（发布版本号）
 
-      - name: Resolve target version
+      - name: Resolve versions
         id: v
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          VER="${{ github.event.inputs.version }}"
-          [ -n "$VER" ] || VER="$(npm view @moonshot-ai/kimi-code version)"
-          echo "version=$VER" >> "$GITHUB_OUTPUT"
-          if gh release view "v$VER" >/dev/null 2>&1; then
-            echo "已存在 release v$VER，跳过"
+          UPSTREAM="${{ github.event.inputs.version }}"
+          [ -n "$UPSTREAM" ] || UPSTREAM="$(npm view @moonshot-ai/kimi-code version)"
+          # 发布版本与上游解耦：<upstream>.<本仓库 commit 数>。补丁一变(新 commit)即新
+          # 版本 → kimi upgrade 可感知；cron 无新提交/无新上游时算出同值 → 命中已存在
+          # release → 跳过。kimi --version 仍报 UPSTREAM（那才是真实 kimi 版本）。
+          N="$(git rev-list --count HEAD)"
+          RELEASE="${UPSTREAM}.${N}"
+          echo "upstream=$UPSTREAM" >> "$GITHUB_OUTPUT"
+          echo "release=$RELEASE" >> "$GITHUB_OUTPUT"
+          if gh release view "v$RELEASE" >/dev/null 2>&1; then
+            echo "已存在 release v$RELEASE，跳过"
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
@@ -57,7 +71,9 @@ jobs:
 
       - name: Build
         if: steps.v.outputs.exists == 'false'
-        run: bash scripts/build.sh "${{ steps.v.outputs.version }}" darwin-arm64
+        env:
+          RELEASE_VERSION: ${{ steps.v.outputs.release }} # 写入包内 VERSION（升级追踪用）
+        run: bash scripts/build.sh "${{ steps.v.outputs.upstream }}" darwin-arm64
 
       - name: Smoke test
         if: steps.v.outputs.exists == 'false'
@@ -67,7 +83,8 @@ jobs:
           tar -xzf dist/kimi-darwin-arm64.tar.gz -C "$tmp"
           out="$("$tmp/kimi" --version)"
           echo "kimi --version → $out"
-          echo "$out" | grep -q "${{ steps.v.outputs.version }}" \
+          # kimi --version 报的是 UPSTREAM（来自 package.json）
+          echo "$out" | grep -q "${{ steps.v.outputs.upstream }}" \
             || { echo "版本不匹配，构建可疑"; exit 1; }
 
       - name: Release
@@ -75,8 +92,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "v${{ steps.v.outputs.version }}" \
+          gh release create "v${{ steps.v.outputs.release }}" \
             dist/kimi-darwin-arm64.tar.gz \
             dist/kimi-darwin-arm64.tar.gz.sha256 \
-            --title "v${{ steps.v.outputs.version }}" \
-            --notes "Patched kimi-code (FetchURL stripped) · upstream @moonshot-ai/kimi-code@${{ steps.v.outputs.version }}"
+            --title "v${{ steps.v.outputs.release }}" \
+            --notes "Patched kimi-code (WebSearch + FetchURL hidden from agent; FetchURL/moonshotFetch service stripped) · upstream @moonshot-ai/kimi-code@${{ steps.v.outputs.upstream }}"

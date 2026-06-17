@@ -1,9 +1,11 @@
 # kimi (personal macOS build)
 
-自托管的 [kimi-code](https://github.com/MoonshotAI/kimi-code) macOS 构建。剥离了
-Moonshot 的 `FetchURL` / `moonshotFetch` URL 抓取 provider，产出一个跑在 **bun** 上的
-轻量包（~10-20MB,对比官方 native SEA ~100MB),并通过 `kimi upgrade` 走本仓库的
-Release 自更新。
+自托管的 [kimi-code](https://github.com/MoonshotAI/kimi-code) macOS 构建。补丁做两件事：
+(1) 从 agent 的可见工具集里**隐藏 `WebSearch` + `FetchURL`**（单点 filter `setActiveTools`，
+模型收不到这两个工具的 schema，彻底无感知——官方 config 的 `disabledTools` 只对 MCP 生效，
+管不了 builtin)；(2) 把 `FetchURL` / `moonshotFetch` 服务从源码整个**拔掉**(不让 kimi 通过
+Moonshot 服务代抓 URL)。产物跑在 **bun** 上（~10-20MB,对比官方 native SEA ~100MB），
+通过 `kimi upgrade` 走本仓库 Release 自更新。
 
 ## 为什么不直接用官方包
 

@@ -55,22 +55,19 @@ ast-grep run --pattern "import type { UrlFetcher, WebSearchProvider } from '../b
   --rewrite "$services_fix" -U "$agcore/tools/support/services.ts" >/dev/null 2>&1 \
   || { echo "  ✗ services.ts: import 未匹配"; failed=1; }
 
-# 8-11. 默认 profile YAML: 移除 FetchURL 工具
-for yaml in agent.yaml coder.yaml explore.yaml plan.yaml; do
-  yaml_path="$agcore/profile/default/$yaml"
-  [ -f "$yaml_path" ] || continue
-  ast-grep run --pattern "  - FetchURL" --rewrite '' -U "$yaml_path" >/dev/null 2>&1 \
-    || { echo "  ✗ profile/default/$yaml: FetchURL 未匹配"; failed=1; }
-done
-
-# 12. 默认放行列表移除 FetchURL
-# 这是数组里的单个字符串元素：用 AST 删会留悬空逗号(实测 ast-grep 0.43 要么不匹配
-# 带逗号的形式、要么删字符串留下 `,`)。按行删除才干净，并保留 fail-loud。
-dta="$agcore/agent/permission/policies/default-tool-approve.ts"
-if grep -qE "^[[:space:]]*'FetchURL',[[:space:]]*$" "$dta"; then
-  sed -i.bak -E "/^[[:space:]]*'FetchURL',[[:space:]]*$/d" "$dta" && rm -f "$dta.bak"
-else
-  echo "  ✗ default-tool-approve.ts: FetchURL 行未匹配"; failed=1
+# 8. 单点 filter：从 profile 的 active 工具集里隐藏 WebSearch + FetchURL。
+# loopTools(发给模型的工具集)唯一来源是 useProfile → setActiveTools(profile.tools)，
+# 在这一处过滤就覆盖 main + 所有 subagent + 未来新增 profile，比逐个删 YAML/数组更抗
+# 上游漂移(表达式级改写、无列表项删除的悬空逗号问题)。这只做"隐藏"——agent 感知不到；
+# FetchURL 的源码与 moonshotFetch 服务已由上面 rules 1-7 整个拔除(phone-home)，
+# WebSearch 仅隐藏(其 provider 仍构建，但模型看不到 schema、无从调用)。
+ai="$REPO_ROOT/packages/agent-core/src/agent/index.ts"
+ast-grep run --pattern 'this.tools.setActiveTools(profile.tools)' \
+  --rewrite "this.tools.setActiveTools(profile.tools.filter((name) => name !== 'WebSearch' && name !== 'FetchURL'))" \
+  -U "$ai" >/dev/null 2>&1
+# ast-grep 的 -U 即使零匹配也返回 0，故改写后 grep 验证产物以保持 fail-loud。
+if ! rg -q "name !== 'WebSearch' && name !== 'FetchURL'" "$ai"; then
+  echo "  ✗ agent/index.ts: setActiveTools(profile.tools) filter 未应用（上游可能改了调用）"; failed=1
 fi
 
 # 13-15. TUI 渲染逻辑（上游可能已移除，允许失败）
