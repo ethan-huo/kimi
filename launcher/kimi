@@ -60,20 +60,26 @@ self_upgrade() {
   rm -rf "$DIR.old"
   cp -R "$DIR" "$DIR.old"
 
-  # 关键：不能在这里原地覆盖 $DIR/kimi —— 那是当前正在运行的脚本，bash 按字节
-  # 偏移边读边执行，覆盖自己会让后续行读到乱码。把替换动作交给"新包里的 launcher"
-  # 执行（它从 $tmp/new/kimi 读取，覆盖 $DIR/kimi 就安全了），用 exec 交棒。
-  exec bash "$tmp/new/kimi" __apply "$DIR" "$tmp/new" "$latest"
+  # 关键：替换动作不能由 $DIR/kimi（正在运行的自己）执行，也不能由 $tmp 里的脚本
+  # 执行——因为替换会覆盖 $DIR/kimi、清理会删掉 $tmp，任一都会抽掉正在运行脚本的
+  # 文件，让 bash 后续按字节偏移读到乱码。所以拷一份新 launcher 到独立临时文件，
+  # exec 它来做替换；它既不在 $DIR 也不在 $tmp 内，覆盖/清理都安全。
+  applier="$(mktemp)"
+  cp "$tmp/new/kimi" "$applier"
+  chmod +x "$applier"
+  exec bash "$applier" __apply "$DIR" "$tmp/new" "$latest" "$tmp"
 }
 
-# 内部子命令：由 self_upgrade 通过新包的 launcher exec 进来，真正做替换。
+# 内部子命令：由 self_upgrade exec 一个独立临时脚本进来，真正做替换。
 if [ "${1:-}" = "__apply" ]; then
-  dst="$2"; src="$3"; ver="$4"
+  dst="$2"; src="$3"; ver="$4"; dltmp="$5"
   rm -rf "${dst:?}/dist" "${dst:?}/node_modules"
   cp -R "$src/." "$dst/"
   chmod +x "$dst/kimi"
-  rm -rf "$(dirname "$src")"
-  echo "✓ 已升级到 $ver（旧版本备份：$dst.old）"
+  rm -rf "$dltmp" # 下载临时目录（不含本脚本）
+  # 注意：变量后紧跟全角标点必须用 ${} 花括号。UTF-8 locale 下 bash 会把 `（`
+  # 等全角字符的字节并进变量名，导致 `$ver（` 被解析成未定义变量而报错。
+  echo "✓ 已升级到 ${ver}（旧版本备份：${dst}.old）"
   exit 0
 fi
 
