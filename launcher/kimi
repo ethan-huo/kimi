@@ -25,10 +25,12 @@ DIR="$(cd "$(dirname "$SRC")" && pwd)"
 MAIN="$DIR/dist/main.mjs"
 
 latest_version() {
-  # 不依赖 jq：直接从 release JSON 里抠 tag_name
-  curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" \
-    | grep -m1 '"tag_name"' \
-    | sed -E 's/.*"tag_name"[^"]*"v?([^"]+)".*/\1/'
+  # 取 github.com/releases/latest 的 302 最终地址 .../tag/vX.Y.Z 解析版本。
+  # 走 web 端，避开 api.github.com 未认证的 60 次/小时限流（asset 下载本身走 CDN
+  # 也不受该限流影响）。
+  curl -fsSLI -o /dev/null -w '%{url_effective}\n' \
+    "https://github.com/$REPO/releases/latest" \
+    | sed -E 's#.*/tag/v?([^/[:space:]]+).*#\1#'
 }
 
 self_upgrade() {
