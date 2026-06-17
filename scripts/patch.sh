@@ -65,8 +65,9 @@ ai="$REPO_ROOT/packages/agent-core/src/agent/index.ts"
 ast-grep run --pattern 'this.tools.setActiveTools(profile.tools)' \
   --rewrite "this.tools.setActiveTools(profile.tools.filter((name) => name !== 'WebSearch' && name !== 'FetchURL'))" \
   -U "$ai" >/dev/null 2>&1
-# ast-grep 的 -U 即使零匹配也返回 0，故改写后 grep 验证产物以保持 fail-loud。
-if ! rg -q "name !== 'WebSearch' && name !== 'FetchURL'" "$ai"; then
+# ast-grep 的 -U 即使零匹配也返回 0，故改写后验证产物以保持 fail-loud。
+# 用 grep -F(而非 rg)——CI runner 不保证有 ripgrep。
+if ! grep -qF "name !== 'WebSearch' && name !== 'FetchURL'" "$ai"; then
   echo "  ✗ agent/index.ts: setActiveTools(profile.tools) filter 未应用（上游可能改了调用）"; failed=1
 fi
 
