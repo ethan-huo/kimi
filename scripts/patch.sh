@@ -64,9 +64,14 @@ for yaml in agent.yaml coder.yaml explore.yaml plan.yaml; do
 done
 
 # 12. 默认放行列表移除 FetchURL
-ast-grep run --pattern "  'FetchURL'," --rewrite '' -U \
-  "$agcore/agent/permission/policies/default-tool-approve.ts" >/dev/null 2>&1 \
-  || { echo "  ✗ default-tool-approve.ts: FetchURL 未匹配"; failed=1; }
+# 这是数组里的单个字符串元素：用 AST 删会留悬空逗号(实测 ast-grep 0.43 要么不匹配
+# 带逗号的形式、要么删字符串留下 `,`)。按行删除才干净，并保留 fail-loud。
+dta="$agcore/agent/permission/policies/default-tool-approve.ts"
+if grep -qE "^[[:space:]]*'FetchURL',[[:space:]]*$" "$dta"; then
+  sed -i.bak -E "/^[[:space:]]*'FetchURL',[[:space:]]*$/d" "$dta" && rm -f "$dta.bak"
+else
+  echo "  ✗ default-tool-approve.ts: FetchURL 行未匹配"; failed=1
+fi
 
 # 13-15. TUI 渲染逻辑（上游可能已移除，允许失败）
 tui="$REPO_ROOT/apps/kimi-code/src/tui/components/messages"
