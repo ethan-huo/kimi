@@ -85,6 +85,12 @@ cp "$HERE/launcher/kimi" "$STAGE/kimi"
 chmod +x "$STAGE/kimi"
 printf '%s\n' "$VERSION" > "$STAGE/VERSION"
 
+# kimi 的 getVersion() 在没有 __KIMI_CODE_VERSION__ define 时(npm build 即如此)，
+# 会从 dist/main.mjs 往上找 package.json 读 version。放一个最小 package.json 满足它，
+# 同时让 getHostPackageRoot()/detectInstallSource() 有据可依(会判为 unsupported，正合意)。
+node -e "const p=require('$UPSTREAM/apps/kimi-code/package.json'); process.stdout.write(JSON.stringify({name:p.name,version:p.version,type:'module'},null,2)+'\n')" \
+  > "$STAGE/package.json"
+
 echo "==> 打包"
 OUT="$HERE/dist"
 mkdir -p "$OUT"
