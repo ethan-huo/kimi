@@ -1,0 +1,55 @@
+# kimi (personal macOS build)
+
+自托管的 [kimi-code](https://github.com/MoonshotAI/kimi-code) macOS 构建。剥离了
+Moonshot 的 `FetchURL` / `moonshotFetch` URL 抓取 provider，产出一个跑在 **bun** 上的
+轻量包（~10-20MB,对比官方 native SEA ~100MB),并通过 `kimi upgrade` 走本仓库的
+Release 自更新。
+
+## 为什么不直接用官方包
+
+- 官方 native 二进制是 Node SEA（嵌完整 Node 运行时）→ ~100MB。本机有 bun,不需要嵌运行时。
+- 需要剥掉 FetchURL（不让 kimi 通过 Moonshot 服务代抓 URL),官方 npm dist 里它是焊死的,
+  只能从 patched 源码构建。
+
+## 工作原理
+
+```
+CI (macOS arm64, 每 6h)
+  ├─ poll npm: @moonshot-ai/kimi-code 最新版
+  ├─ 已发过该版本 → 跳过
+  └─ 否则:
+       clone 上游对应 tag
+       → ast-grep 剥 FetchURL (scripts/patch.sh)
+       → pnpm build (tsdown)          # 注: 不用 bun build,它解析不了 monorepo 的 #/ subpath imports
+       → 裁剪 macOS native (koffi 单 triplet + clipboard 单子包)
+       → tar + 自托管 launcher
+       → 发 GitHub Release  v<version>
+```
+
+运行时:`kimi` launcher 快路径 `exec bun dist/main.mjs`,并置 `KIMI_CODE_NO_AUTO_UPDATE=1`
+关掉官方更新检查;`kimi upgrade` 从本仓库 Release 拉新包原地替换。
+
+## 安装
+
+```bash
+VER=$(curl -fsSL https://api.github.com/repos/ethan-huo/kimi/releases/latest | grep -m1 tag_name | sed -E 's/.*"v?([^"]+)".*/\1/')
+mkdir -p ~/.kimi && curl -fsSL "https://github.com/ethan-huo/kimi/releases/download/v$VER/kimi-darwin-arm64.tar.gz" | tar -xz -C ~/.kimi
+ln -sf ~/.kimi/kimi ~/.local/bin/kimi   # 确保 ~/.local/bin 在 PATH
+kimi --version
+```
+
+## 本地构建（调试）
+
+```bash
+bash scripts/build.sh 0.16.0 darwin-arm64
+# → dist/kimi-darwin-arm64.tar.gz
+```
+
+需要本机有:git / pnpm / node>=24.15 / npm / bun / ast-grep。
+
+## 手动触发一次 release
+
+```bash
+gh workflow run "Build & Release"                 # 用 npm latest
+gh workflow run "Build & Release" -f version=0.16.0
+```

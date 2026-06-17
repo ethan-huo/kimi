@@ -1,0 +1,82 @@
+name: Build & Release
+
+on:
+  schedule:
+    - cron: "0 */6 * * *" # 每 6 小时 poll 一次上游 npm 版本
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "上游版本（留空 = npm latest）"
+        required: false
+
+concurrency: release
+
+jobs:
+  build:
+    runs-on: macos-14 # Apple Silicon → 原生产出 darwin-arm64
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve target version
+        id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VER="${{ github.event.inputs.version }}"
+          [ -n "$VER" ] || VER="$(npm view @moonshot-ai/kimi-code version)"
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          if gh release view "v$VER" >/dev/null 2>&1; then
+            echo "已存在 release v$VER，跳过"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup pnpm
+        if: steps.v.outputs.exists == 'false'
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
+      - name: Setup Node
+        if: steps.v.outputs.exists == 'false'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24" # 上游要求 >=24.15
+
+      - name: Setup Bun
+        if: steps.v.outputs.exists == 'false'
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install ast-grep
+        if: steps.v.outputs.exists == 'false'
+        run: npm i -g @ast-grep/cli
+
+      - name: Build
+        if: steps.v.outputs.exists == 'false'
+        run: bash scripts/build.sh "${{ steps.v.outputs.version }}" darwin-arm64
+
+      - name: Smoke test
+        if: steps.v.outputs.exists == 'false'
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          tar -xzf dist/kimi-darwin-arm64.tar.gz -C "$tmp"
+          out="$("$tmp/kimi" --version)"
+          echo "kimi --version → $out"
+          echo "$out" | grep -q "${{ steps.v.outputs.version }}" \
+            || { echo "版本不匹配，构建可疑"; exit 1; }
+
+      - name: Release
+        if: steps.v.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v${{ steps.v.outputs.version }}" \
+            dist/kimi-darwin-arm64.tar.gz \
+            dist/kimi-darwin-arm64.tar.gz.sha256 \
+            --title "v${{ steps.v.outputs.version }}" \
+            --notes "Patched kimi-code (FetchURL stripped) · upstream @moonshot-ai/kimi-code@${{ steps.v.outputs.version }}"

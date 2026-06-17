@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# kimi launcher（随包分发，安装后软链到 PATH）。
+#
+#   kimi upgrade   → 从本仓库的 GitHub Release 拉最新包，原地自替换
+#   kimi <其它>    → exec bun dist/main.mjs，透传所有参数
+#
+# 关掉 kimi 自带的 CDN/后台更新（它面向 npm 安装，对我们这种自建包无意义，
+# 且会误判 install source 为 unsupported 而反复提示）。升级走我们自己的逻辑。
+
+REPO="ethan-huo/kimi"
+TARGET="darwin-arm64"
+
+# 解析自身所在目录（容忍 PATH 上的软链层层指向）
+SRC="${BASH_SOURCE[0]}"
+while [ -L "$SRC" ]; do
+  link="$(readlink "$SRC")"
+  case "$link" in
+    /*) SRC="$link" ;;
+    *)  SRC="$(dirname "$SRC")/$link" ;;
+  esac
+done
+DIR="$(cd "$(dirname "$SRC")" && pwd)"
+MAIN="$DIR/dist/main.mjs"
+
+latest_version() {
+  # 不依赖 jq：直接从 release JSON 里抠 tag_name
+  curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" \
+    | grep -m1 '"tag_name"' \
+    | sed -E 's/.*"tag_name"[^"]*"v?([^"]+)".*/\1/'
+}
+
+self_upgrade() {
+  local cur latest tmp url
+  cur="$(cat "$DIR/VERSION" 2>/dev/null || echo 0.0.0)"
+  latest="$(latest_version || true)"
+  [ -n "$latest" ] || { echo "无法获取最新版本（网络？仓库无 release？）"; return 1; }
+
+  if [ "$latest" = "$cur" ]; then
+    echo "已是最新版本 ($cur)"
+    return 0
+  fi
+  echo "升级 $cur → $latest …"
+
+  tmp="$(mktemp -d)"
+  url="https://github.com/$REPO/releases/download/v$latest/kimi-$TARGET.tar.gz"
+  curl -fsSL "$url" -o "$tmp/k.tgz"
+
+  # 有校验和就校验
+  if curl -fsSL "$url.sha256" -o "$tmp/k.sha256" 2>/dev/null && [ -s "$tmp/k.sha256" ]; then
+    echo "$(cat "$tmp/k.sha256")  $tmp/k.tgz" | shasum -a 256 -c - >/dev/null \
+      || { echo "校验失败，已中止"; rm -rf "$tmp"; return 1; }
+  fi
+
+  mkdir -p "$tmp/new"
+  tar -xzf "$tmp/k.tgz" -C "$tmp/new"
+
+  # 原地替换：先备份旧目录，再用新内容覆盖（失败可从 .old 手动回滚）
+  rm -rf "$DIR.old"
+  cp -R "$DIR" "$DIR.old"
+  rm -rf "${DIR:?}/dist" "${DIR:?}/node_modules"
+  cp -R "$tmp/new/." "$DIR/"
+  chmod +x "$DIR/kimi"
+  rm -rf "$tmp"
+
+  echo "✓ 已升级到 $latest（旧版本备份：$DIR.old）"
+}
+
+if [ "${1:-}" = "upgrade" ]; then
+  self_upgrade
+  exit $?
+fi
+
+export KIMI_CODE_NO_AUTO_UPDATE=1
+exec bun "$MAIN" "$@"
