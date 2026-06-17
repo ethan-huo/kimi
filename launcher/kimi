@@ -56,16 +56,26 @@ self_upgrade() {
   mkdir -p "$tmp/new"
   tar -xzf "$tmp/k.tgz" -C "$tmp/new"
 
-  # 原地替换：先备份旧目录，再用新内容覆盖（失败可从 .old 手动回滚）
+  # 备份旧目录（失败可从 .old 手动回滚）
   rm -rf "$DIR.old"
   cp -R "$DIR" "$DIR.old"
-  rm -rf "${DIR:?}/dist" "${DIR:?}/node_modules"
-  cp -R "$tmp/new/." "$DIR/"
-  chmod +x "$DIR/kimi"
-  rm -rf "$tmp"
 
-  echo "✓ 已升级到 $latest（旧版本备份：$DIR.old）"
+  # 关键：不能在这里原地覆盖 $DIR/kimi —— 那是当前正在运行的脚本，bash 按字节
+  # 偏移边读边执行，覆盖自己会让后续行读到乱码。把替换动作交给"新包里的 launcher"
+  # 执行（它从 $tmp/new/kimi 读取，覆盖 $DIR/kimi 就安全了），用 exec 交棒。
+  exec bash "$tmp/new/kimi" __apply "$DIR" "$tmp/new" "$latest"
 }
+
+# 内部子命令：由 self_upgrade 通过新包的 launcher exec 进来，真正做替换。
+if [ "${1:-}" = "__apply" ]; then
+  dst="$2"; src="$3"; ver="$4"
+  rm -rf "${dst:?}/dist" "${dst:?}/node_modules"
+  cp -R "$src/." "$dst/"
+  chmod +x "$dst/kimi"
+  rm -rf "$(dirname "$src")"
+  echo "✓ 已升级到 $ver（旧版本备份：$dst.old）"
+  exit 0
+fi
 
 if [ "${1:-}" = "upgrade" ]; then
   self_upgrade
