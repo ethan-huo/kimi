@@ -11,7 +11,7 @@ set -euo pipefail
 #   kimi            launcher (bun 运行 + 自托管 upgrade)
 #   VERSION         上游版本号
 #   dist/           patched bundle (main.mjs + chunks)  ← tsdown 产物
-#   node_modules/   裁剪后的 native 依赖 (单平台)
+#   node_modules/   运行时外部依赖 + 裁剪后的 native 依赖 (单平台)
 #
 # 前置工具：git, pnpm, node(>=24.15), npm, bun, ast-grep。CI 里由 workflow 装好；
 # 本机直接跑也行（你这些工具都有）。
@@ -25,8 +25,8 @@ VERSION="${1:?usage: build.sh <upstream-version> [target]}"
 TARGET="${2:-darwin-arm64}"
 
 case "$TARGET" in
-  darwin-arm64) KOFFI_TRIPLET=darwin_arm64; CLIP_PKG="@mariozechner/clipboard-darwin-arm64" ;;
-  darwin-x64)   KOFFI_TRIPLET=darwin_x64;   CLIP_PKG="@mariozechner/clipboard-darwin-x64" ;;
+  darwin-arm64) KOFFI_TRIPLET=darwin_arm64 ;;
+  darwin-x64)   KOFFI_TRIPLET=darwin_x64 ;;
   *) echo "unsupported target: $TARGET (only darwin-arm64 / darwin-x64)"; exit 1 ;;
 esac
 
@@ -59,27 +59,33 @@ echo "==> 构建 (tsdown)"
     && pnpm --filter @moonshot-ai/agent-core run build \
     && pnpm --filter @moonshot-ai/kimi-code run build )
 
-echo "==> 准备 native 依赖 ($TARGET)"
+echo "==> 准备运行时依赖 ($TARGET)"
 NM="$WORK/native"
 mkdir -p "$NM"
 KOFFI_VER="$(node -p "require('$UPSTREAM/apps/kimi-code/package.json').optionalDependencies.koffi")"
 CLIP_VER="$(node -p "require('$UPSTREAM/apps/kimi-code/package.json').optionalDependencies['@mariozechner/clipboard']")"
+# 上游从 0.17.0 起把 chalk/pathe/zod 等依赖标为 optionalDependencies，tsdown 不会内联它们，
+# 必须在产物 node_modules 中提供。用 npm 一次性安装可选依赖（含传递依赖与平台子包）。
+RUNTIME_DEPS="$(node -e "
+const o = require('$UPSTREAM/apps/kimi-code/package.json').optionalDependencies;
+delete o.koffi;
+delete o['@mariozechner/clipboard'];
+console.log(Object.entries(o).map(([k, v]) => k + '@' + v).join(' '));
+")"
 ( cd "$NM" && npm init -y >/dev/null \
-    && npm i --no-audit --no-fund --loglevel=error "koffi@$KOFFI_VER" "@mariozechner/clipboard@$CLIP_VER" )
+    && npm i --no-audit --no-fund --loglevel=error "koffi@$KOFFI_VER" "@mariozechner/clipboard@$CLIP_VER" $RUNTIME_DEPS )
 
 echo "==> 组装"
 STAGE="$WORK/stage"
-mkdir -p "$STAGE/node_modules/@mariozechner"
+mkdir -p "$STAGE/node_modules"
 cp -R "$UPSTREAM/apps/kimi-code/dist" "$STAGE/dist"
 
-# koffi：整包拷入后删掉非目标平台的 triplet（每个 ~1.5MB，全平台 ~30MB）
-cp -R "$NM/node_modules/koffi" "$STAGE/node_modules/koffi"
+# 拷贝所有运行时依赖（npm 已解析传递依赖与 clipboard 平台子包）
+cp -R "$NM/node_modules/." "$STAGE/node_modules/"
+
+# koffi：npm 安装仍包含全平台 triplet，删掉非目标平台（每个 ~1.5MB，全平台 ~30MB）
 find "$STAGE/node_modules/koffi/build/koffi" -mindepth 1 -maxdepth 1 -type d \
   ! -name "$KOFFI_TRIPLET" -exec rm -rf {} +
-
-# clipboard：host 包 + 单个平台子包
-cp -R "$NM/node_modules/@mariozechner/clipboard" "$STAGE/node_modules/@mariozechner/clipboard"
-cp -R "$NM/node_modules/$CLIP_PKG" "$STAGE/node_modules/$CLIP_PKG"
 
 cp "$HERE/launcher/kimi" "$STAGE/kimi"
 chmod +x "$STAGE/kimi"
