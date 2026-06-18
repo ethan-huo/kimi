@@ -23,9 +23,10 @@ CI (macOS arm64, 每 6h)
        clone 上游对应 tag
        → ast-grep 剥 FetchURL (scripts/patch.sh)
        → pnpm build (tsdown)          # 注: 不用 bun build,它解析不了 monorepo 的 #/ subpath imports
-       → 裁剪 macOS native (koffi 单 triplet + clipboard 单子包)
+       → 安装上游 optionalDependencies 到产物 node_modules  # 0.17.0+ tsdown 不再内联这些依赖
+       → 裁剪 koffi 非目标平台 triplet
        → tar + 自托管 launcher
-       → 发 GitHub Release  v<version>
+       → 发 GitHub Release  v<upstream>.<本仓库 commit 数>   # 补丁/构建改动产生新 commit 即新版本
 ```
 
 运行时:`kimi` launcher 快路径 `exec bun dist/main.mjs`,并置 `KIMI_CODE_NO_AUTO_UPDATE=1`
