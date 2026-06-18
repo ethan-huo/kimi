@@ -43,7 +43,7 @@ jobs:
           echo "upstream=$UPSTREAM" >> "$GITHUB_OUTPUT"
           echo "release=$RELEASE" >> "$GITHUB_OUTPUT"
           if gh release view "v$RELEASE" >/dev/null 2>&1; then
-            echo "已存在 release v$RELEASE，跳过"
+            echo "已存在 release v${RELEASE}，跳过"
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
