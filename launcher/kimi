@@ -79,9 +79,11 @@ if [ "${1:-}" = "__apply" ]; then
   cp -R "$src/." "$dst/"
   chmod +x "$dst/kimi"
   rm -rf "$dltmp" # 下载临时目录（不含本脚本）
+  # 升级成功，旧备份不再 needed；保留它只会堆积历史版本垃圾。
+  rm -rf "${dst}.old"
   # 注意：变量后紧跟全角标点必须用 ${} 花括号。UTF-8 locale 下 bash 会把 `（`
   # 等全角字符的字节并进变量名，导致 `$ver（` 被解析成未定义变量而报错。
-  echo "✓ 已升级到 ${ver}（旧版本备份：${dst}.old）"
+  echo "✓ 已升级到 ${ver}"
   exit 0
 fi
 

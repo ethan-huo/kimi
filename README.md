@@ -29,15 +29,15 @@ CI (macOS arm64, 每 6h)
        → 发 GitHub Release  v<upstream>.<本仓库 commit 数>   # 补丁/构建改动产生新 commit 即新版本
 ```
 
-运行时:`kimi` launcher 快路径 `exec bun dist/main.mjs`,并置 `KIMI_CODE_NO_AUTO_UPDATE=1`
+运行时数据（sessions、telemetry）放在 `~/.kimi`，安装目录放在 `~/.kimi-app`；升级成功后会自动清理 `~/.kimi-app.old`。运行时:`kimi` launcher 快路径 `exec bun dist/main.mjs`,并置 `KIMI_CODE_NO_AUTO_UPDATE=1`
 关掉官方更新检查;`kimi upgrade` 从本仓库 Release 拉新包原地替换。
 
 ## 安装
 
 ```bash
 VER=$(curl -fsSL https://api.github.com/repos/ethan-huo/kimi/releases/latest | grep -m1 tag_name | sed -E 's/.*"v?([^"]+)".*/\1/')
-mkdir -p ~/.kimi && curl -fsSL "https://github.com/ethan-huo/kimi/releases/download/v$VER/kimi-darwin-arm64.tar.gz" | tar -xz -C ~/.kimi
-ln -sf ~/.kimi/kimi ~/.local/bin/kimi   # 确保 ~/.local/bin 在 PATH
+mkdir -p ~/.kimi-app && curl -fsSL "https://github.com/ethan-huo/kimi/releases/download/v$VER/kimi-darwin-arm64.tar.gz" | tar -xz -C ~/.kimi-app
+ln -sf ~/.kimi-app/kimi ~/.local/bin/kimi   # 确保 ~/.local/bin 在 PATH
 kimi --version
 ```
 
