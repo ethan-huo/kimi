@@ -23,7 +23,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # 需要完整历史来数 commit（发布版本号）
 
@@ -51,13 +51,13 @@ jobs:
 
       - name: Setup pnpm
         if: steps.v.outputs.exists == 'false'
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: 10.33.0
 
       - name: Setup Node
         if: steps.v.outputs.exists == 'false'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "24" # 上游要求 >=24.15
 
